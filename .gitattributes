@@ -1,0 +1,15 @@
+# Normaliza automaticamente os finais de linha (evita diffs causados por
+# diferenças entre Windows/CRLF e Linux-Mac/LF ao colaborar entre SOs).
+* text=auto
+
+*.py text eol=lf
+*.md  text eol=lf
+*.html text eol=lf
+*.txt text eol=lf
+
+# Garante que arquivos binários nunca sejam tratados como texto
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.pdf binary
