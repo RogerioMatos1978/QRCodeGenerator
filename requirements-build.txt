@@ -1,0 +1,7 @@
+# Dependência apenas para GERAR o executável Windows (.exe).
+# Não é necessária para rodar o projeto normalmente com "python main.py",
+# nem é necessária para quem só vai usar o .exe já pronto.
+#
+# Instale com: pip install -r requirements-build.txt
+
+pyinstaller>=6.10.0

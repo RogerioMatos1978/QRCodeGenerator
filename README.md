@@ -33,10 +33,14 @@ QRCodeGenerator/
 ├── gui.py                   # Interface gráfica (CustomTkinter, dark mode)
 ├── qr_generator.py          # Núcleo: geração/composição/exportação do QR Code
 ├── landing_page_builder.py  # Geração da landing page (HTML/JS) de redirecionamento
+├── browser_preview.py       # Pré-visualização do QR Code no navegador padrão
 ├── utils.py                 # Funções auxiliares (validação, cores, imagens, logging)
 ├── config.py                # Dataclasses e constantes centrais
+├── build_windows_exe.bat    # Script para gerar o executável Windows (.exe)
 ├── requirements.txt         # Dependências do projeto
+├── requirements-build.txt   # Dependência extra apenas para gerar o .exe
 ├── README.md                # Este arquivo
+├── LICENSE                  # Licença MIT
 ├── assets/                  # Coloque aqui logotipos de exemplo
 ├── output/                  # QR Codes exportados (PNG/SVG/PDF)
 └── landing_page/            # index.html gerado (publicar em host estático)
@@ -132,7 +136,50 @@ Parâmetros disponíveis: `--android-url`, `--ios-url`, `--landing-url`,
 `--error-correction {L,M,Q,H}`, `--dark-color`, `--light-color`,
 `--formats {PNG,SVG,PDF}`, `--output-dir`, `--filename`.
 
-## Bibliotecas utilizadas e justificativa
+## Gerando o executável Windows (.exe)
+
+O projeto pode ser empacotado em um **único arquivo `.exe` portátil**, que roda em qualquer computador Windows **sem precisar instalar Python** — basta copiar o arquivo e dar duplo-clique.
+
+> ⚠️ A geração do `.exe` precisa ser feita **rodando o script no próprio Windows** (não é possível gerar um `.exe` válido a partir de Linux/macOS).
+
+### Passo a passo (uma única vez)
+
+1. Abra o terminal do PyCharm (ou Prompt de Comando) na pasta do projeto, com o ambiente virtual ativo.
+2. Instale a dependência de build:
+   ```bash
+   pip install -r requirements-build.txt
+   ```
+3. Execute o script:
+   ```bash
+   build_windows_exe.bat
+   ```
+4. Aguarde a compilação (alguns minutos). O executável final estará em:
+   ```
+   dist\QRCodeGenerator.exe
+   ```
+5. Copie `QRCodeGenerator.exe` para qualquer computador Windows — ele funciona sozinho, sem precisar de Python instalado.
+
+### O que o `.exe` faz diferente da versão em código
+
+- O executável detecta automaticamente que está "empacotado" e passa a salvar `output/` e `landing_page/` **na mesma pasta onde o `.exe` está**, em vez de uma pasta temporária (que seria apagada a cada execução).
+- Antivírus podem, ocasionalmente, marcar executáveis gerados por PyInstaller como suspeitos (falso positivo comum, por não serem assinados digitalmente). Se isso ocorrer, adicione uma exceção ou assine o executável com um certificado, se sua instituição tiver um.
+
+## Salvar em Imagens e pré-visualizar no navegador
+
+Além do botão **"Salvar"** (que deixa você escolher a pasta), a interface tem o botão **"📂 Salvar em Imagens e Abrir no Navegador"**, que:
+
+1. Salva o QR Code automaticamente na pasta **Imagens/Pictures** do usuário (`C:\Users\<seu-usuário>\Pictures`).
+2. Mostra uma janela confirmando o caminho exato onde os arquivos foram salvos.
+3. Abre uma página no navegador padrão do sistema exibindo o QR Code gerado.
+
+Esse mesmo comportamento está disponível via linha de comando:
+
+```bash
+python main.py --landing-url "https://qrcodedinamicsenai.netlify.app" ^
+    --save-to-pictures --open-browser --formats PNG
+```
+
+
 
 | Biblioteca      | Uso                                                                 |
 |------------------|----------------------------------------------------------------------|

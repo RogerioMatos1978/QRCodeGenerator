@@ -102,6 +102,9 @@ class QRCodeGenerator:
     # ------------------------------------------------------------------ #
     def _render_base_png(self) -> Image.Image:
         """Renderiza o QR Code (sem logo) como imagem PIL RGBA."""
+        if self.style.gradient_end_color:
+            return self._render_gradient_png()
+
         qr = self._build_qr()
         scale = self._compute_scale()
         buffer = io.BytesIO()
@@ -120,6 +123,67 @@ class QRCodeGenerator:
         buffer.seek(0)
         image = Image.open(buffer).convert("RGBA")
         logger.info("QR Code base renderizado: %sx%s px", image.width, image.height)
+        return image
+
+    def _gradient_progress(self, row: int, col: int, modules: int) -> float:
+        """Calcula o progresso (0.0 a 1.0) de um módulo ao longo do degradê."""
+        denom = max(modules - 1, 1)
+        if self.style.gradient_direction == "horizontal":
+            return col / denom
+        if self.style.gradient_direction == "vertical":
+            return row / denom
+        return (row + col) / (2 * denom)  # diagonal (padrão)
+
+    @staticmethod
+    def _lerp_color(start: tuple, end: tuple, t: float) -> tuple:
+        """Interpola linearmente entre duas cores RGB, em um ponto 0.0-1.0."""
+        return tuple(int(start[i] + (end[i] - start[i]) * t) for i in range(3))
+
+    def _render_gradient_png(self) -> Image.Image:
+        """
+        Renderiza o QR Code módulo a módulo (em vez de usar o renderizador
+        padrão do segno), aplicando um degradê de cor entre `dark_color`
+        e `gradient_end_color` de acordo com a posição de cada módulo.
+
+        Necessário porque o segno não tem suporte nativo a gradientes —
+        cada módulo escuro recebe sua própria cor interpolada.
+        """
+        qr = self._build_qr()
+        scale = self._compute_scale()
+        matrix = qr.matrix
+        modules = len(matrix)
+        border = self.style.border
+        module_px = scale
+        total_px = (modules + 2 * border) * module_px
+
+        light_rgba = (
+            (255, 255, 255, 0)
+            if self.style.light_color.lower() == "transparent"
+            else hex_to_rgba(self.style.light_color)
+        )
+
+        image = Image.new("RGBA", (total_px, total_px), light_rgba)
+        draw = ImageDraw.Draw(image)
+
+        start_rgb = hex_to_rgba(self.style.dark_color)[:3]
+        end_rgb = hex_to_rgba(self.style.gradient_end_color)[:3]
+
+        for row_idx, row in enumerate(matrix):
+            for col_idx, value in enumerate(row):
+                if not value:
+                    continue
+                t = self._gradient_progress(row_idx, col_idx, modules)
+                color = self._lerp_color(start_rgb, end_rgb, t) + (255,)
+                x0 = (border + col_idx) * module_px
+                y0 = (border + row_idx) * module_px
+                draw.rectangle([x0, y0, x0 + module_px - 1, y0 + module_px - 1], fill=color)
+
+        logger.info(
+            "QR Code renderizado com degradê (%s -> %s, %s).",
+            self.style.dark_color,
+            self.style.gradient_end_color,
+            self.style.gradient_direction,
+        )
         return image
 
     # ------------------------------------------------------------------ #
@@ -238,15 +302,43 @@ class QRCodeGenerator:
     # ------------------------------------------------------------------ #
     # Composição da legenda (ex.: "Aponte a Câmera")
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _load_font(size: int) -> ImageFont.ImageFont:
-        """
-        Carrega uma fonte legível e em negrito para a legenda.
+    # Fontes candidatas, em ordem de preferência. A fonte embutida do
+    # Pillow (load_default) NÃO cobre bem caracteres acentuados
+    # (ex.: "Câmera" aparece com uma caixa no lugar do "â"), então
+    # preferimos uma fonte de sistema de verdade sempre que disponível.
+    _FONT_CANDIDATES: tuple = (
+        "arial.ttf",                                            # Windows (busca padrão do FreeType)
+        "Arial.ttf",
+        "C:/Windows/Fonts/arial.ttf",                            # Windows (caminho absoluto)
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",          # macOS
+        "/System/Library/Fonts/Helvetica.ttc",
+    )
 
-        Usa a fonte embutida do Pillow (disponível a partir da versão 10.1,
-        sem depender de fontes instaladas no sistema operacional — funciona
-        de forma idêntica em Windows, macOS e Linux/PyCharm).
+    @classmethod
+    def _load_font(cls, size: int) -> ImageFont.ImageFont:
         """
+        Carrega uma fonte em negrito com bom suporte a acentuação
+        (português do Brasil: ã, â, ç, é, í, ó, ú etc.).
+
+        Tenta, em ordem, fontes reais do sistema operacional (Arial,
+        Segoe UI, DejaVu Sans, Liberation Sans, Helvetica). Só recorre
+        à fonte padrão embutida do Pillow se nenhuma delas for
+        encontrada — nesse caso, caracteres acentuados podem não
+        aparecer corretamente.
+        """
+        for candidate in cls._FONT_CANDIDATES:
+            try:
+                return ImageFont.truetype(candidate, size)
+            except (OSError, IOError):
+                continue
+
+        logger.warning(
+            "Nenhuma fonte de sistema com suporte a acentos foi encontrada; "
+            "usando fonte padrão do Pillow (acentos podem não aparecer corretamente)."
+        )
         try:
             return ImageFont.load_default(size=size)
         except TypeError:  # Pillow < 10.1 não aceita o parâmetro "size"
@@ -411,6 +503,9 @@ class QRCodeGenerator:
             light=light,
         )
         svg_content = buffer.getvalue()
+        if self.style.gradient_end_color:
+            svg_content = self._apply_gradient_svg(svg_content)
+
         width, height = qr.symbol_size(scale=10, border=self.style.border)
 
         if self.style.eye_mark:
@@ -427,6 +522,39 @@ class QRCodeGenerator:
         destination.write_text(svg_content, encoding="utf-8")
         logger.info("SVG salvo em: %s", destination)
         return destination
+
+    def _apply_gradient_svg(self, svg_content: str) -> str:
+        """
+        Substitui o preenchimento sólido dos módulos do QR Code por um
+        gradiente linear SVG nativo (`<linearGradient>`), entre
+        `dark_color` e `gradient_end_color`.
+        """
+        direction_coords = {
+            "diagonal": ("0%", "0%", "100%", "100%"),
+            "horizontal": ("0%", "0%", "100%", "0%"),
+            "vertical": ("0%", "0%", "0%", "100%"),
+        }
+        x1, y1, x2, y2 = direction_coords.get(self.style.gradient_direction, direction_coords["diagonal"])
+
+        gradient_def = (
+            '<defs><linearGradient id="qrGradient" '
+            f'x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}">'
+            f'<stop offset="0%" stop-color="{self.style.dark_color}" />'
+            f'<stop offset="100%" stop-color="{self.style.gradient_end_color}" />'
+            "</linearGradient></defs>"
+        )
+
+        # Troca o preenchimento sólido dos módulos (fill="dark_color") pelo gradiente
+        target = f'fill="{self.style.dark_color}"'
+        if target in svg_content:
+            svg_content = svg_content.replace(target, 'fill="url(#qrGradient)"', 1)
+
+        match = re.search(r'<svg[^>]*>', svg_content)
+        if match:
+            insert_at = match.end()
+            svg_content = svg_content[:insert_at] + gradient_def + svg_content[insert_at:]
+
+        return svg_content
 
     def _embed_eyes_in_svg(self, svg_content: str, qr: segno.QRCode) -> str:
         """

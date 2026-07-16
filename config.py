@@ -21,6 +21,7 @@ from typing import Literal, Optional, Tuple
 ErrorCorrectionLevel = Literal["L", "M", "Q", "H"]
 OutputFormat = Literal["PNG", "SVG", "PDF"]
 CaptionPosition = Literal["top", "bottom"]
+GradientDirection = Literal["diagonal", "horizontal", "vertical"]
 
 
 def _resolve_base_dir() -> Path:
@@ -102,6 +103,11 @@ class QRStyleConfig:
         rounded_corners: Se True, aplica cantos arredondados e uma borda
             colorida a toda a composição final (efeito "cartão").
         card_border_color: Cor da borda do cartão. Se None, usa `dark_color`.
+        gradient_end_color: Se definido, os módulos escuros do QR Code são
+            desenhados com um degradê de `dark_color` até esta cor, em vez
+            de uma cor sólida.
+        gradient_direction: Direção do degradê: "diagonal" (padrão),
+            "horizontal" ou "vertical".
     """
 
     data: str
@@ -120,6 +126,8 @@ class QRStyleConfig:
     eye_mark: Optional[str] = None
     rounded_corners: bool = True
     card_border_color: Optional[str] = None
+    gradient_end_color: Optional[str] = None
+    gradient_direction: GradientDirection = "diagonal"
 
     def __post_init__(self) -> None:
         """Regras de negócio aplicadas após a criação do objeto."""

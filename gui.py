@@ -54,6 +54,8 @@ class QRCodeApp(ctk.CTk):
         self.dark_color: str = "#000000"
         self.light_color: str = "#FFFFFF"
         self.caption_color: str = "#FFFFFF"
+        self.gradient_enabled: bool = False
+        self.gradient_end_color: str = SENAI_ORANGE
         self.generator: Optional[QRCodeGenerator] = None
         self.preview_image_ctk: Optional[ctk.CTkImage] = None
         self._last_rendered_image: Optional[Image.Image] = None  # imagem "crua", sem redimensionar
@@ -183,6 +185,44 @@ class QRCodeApp(ctk.CTk):
             command=self._apply_senai_colors,
         )
         self.senai_preset_btn.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        row += 1
+
+        # --- Degradê no QR Code -------------------------------------------- #
+        self.gradient_var = tk.BooleanVar(value=False)
+        self.gradient_check = ctk.CTkCheckBox(
+            form,
+            text="QR Code em degradê (cor inicial → cor final)",
+            variable=self.gradient_var,
+        )
+        self.gradient_check.grid(row=row, column=0, sticky="ew", pady=(4, 4))
+        row += 1
+
+        gradient_frame = ctk.CTkFrame(form, fg_color="transparent")
+        gradient_frame.grid(row=row, column=0, sticky="ew", pady=(0, 4))
+        gradient_frame.grid_columnconfigure((0, 1), weight=1)
+
+        self.gradient_end_btn = ctk.CTkButton(
+            gradient_frame,
+            text="Cor final do degradê",
+            fg_color=self.gradient_end_color,
+            text_color=self._contrast_text_color(self.gradient_end_color),
+            command=lambda: self._pick_color("gradient_end"),
+        )
+        self.gradient_end_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        self.gradient_direction_menu = ctk.CTkOptionMenu(
+            gradient_frame, values=["diagonal", "horizontal", "vertical"]
+        )
+        self.gradient_direction_menu.set("diagonal")
+        self.gradient_direction_menu.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        row += 1
+        ctk.CTkLabel(
+            form,
+            text="* A cor inicial do degradê é a mesma definida em 'Cor do QR Code'.",
+            anchor="w",
+            text_color="gray70",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=row, column=0, sticky="ew", pady=(0, 8))
         row += 1
 
         # --- Legenda (texto abaixo do QR Code) ---------------------------- #
@@ -373,6 +413,9 @@ class QRCodeApp(ctk.CTk):
             elif target == "caption":
                 self.caption_color = hex_color
                 self.caption_color_btn.configure(fg_color=hex_color, text_color=text_color)
+            elif target == "gradient_end":
+                self.gradient_end_color = hex_color
+                self.gradient_end_btn.configure(fg_color=hex_color, text_color=text_color)
 
     def _apply_senai_colors(self) -> None:
         """
@@ -383,6 +426,10 @@ class QRCodeApp(ctk.CTk):
         self.dark_color = SENAI_BLUE
         self.light_color = "#FFFFFF"
         self.caption_color = "#FFFFFF"
+        self.gradient_enabled = True
+        self.gradient_end_color = SENAI_ORANGE
+        self.gradient_var.set(True)
+        self.gradient_direction_menu.set("diagonal")
 
         self.dark_color_btn.configure(
             fg_color=self.dark_color, text_color=self._contrast_text_color(self.dark_color)
@@ -393,11 +440,16 @@ class QRCodeApp(ctk.CTk):
         self.caption_color_btn.configure(
             fg_color=self.caption_color, text_color=self._contrast_text_color(self.caption_color)
         )
+        self.gradient_end_btn.configure(
+            fg_color=self.gradient_end_color, text_color=self._contrast_text_color(self.gradient_end_color)
+        )
 
         if not self.caption_entry.get().strip():
             self.caption_entry.insert(0, "Aponte a Câmera")
 
-        self._set_status("Paleta de cores do SENAI aplicada (azul #164194 / laranja #EF4910).")
+        self._set_status(
+            "Paleta do SENAI aplicada: degradê azul #164194 → laranja #EF4910."
+        )
 
     def _on_select_logo(self) -> None:
         """Abre o seletor de arquivos para escolher o logotipo."""
@@ -479,6 +531,8 @@ class QRCodeApp(ctk.CTk):
                 caption_color=self.caption_color,
                 eye_mark="S" if self.custom_eyes_var.get() else None,
                 rounded_corners=self.rounded_corners_var.get(),
+                gradient_end_color=self.gradient_end_color if self.gradient_var.get() else None,
+                gradient_direction=self.gradient_direction_menu.get(),  # type: ignore[arg-type]
             )
         except ValueError as exc:
             messagebox.showerror("Configuração inválida", str(exc))

@@ -83,6 +83,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Desativa cantos arredondados e borda (estilo cartão).",
     )
     parser.add_argument(
+        "--gradient-end-color",
+        type=str,
+        default=None,
+        help="Se definido, aplica degradê nos módulos do QR Code, de --dark-color até esta cor.",
+    )
+    parser.add_argument(
+        "--gradient-direction",
+        type=str,
+        choices=["diagonal", "horizontal", "vertical"],
+        default="diagonal",
+        help="Direção do degradê (padrão: diagonal).",
+    )
+    parser.add_argument(
         "--eye-mark",
         type=str,
         default=None,
@@ -151,6 +164,8 @@ def run_cli(args: argparse.Namespace) -> int:
             caption_position=args.caption_position,
             eye_mark=args.eye_mark,
             rounded_corners=not args.no_rounded_corners,
+            gradient_end_color=args.gradient_end_color,
+            gradient_direction=args.gradient_direction,
         )
         generator = QRCodeGenerator(style)
         output_dir = get_pictures_directory() if args.save_to_pictures else args.output_dir
