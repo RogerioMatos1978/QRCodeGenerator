@@ -11,6 +11,8 @@ pré-visualizar o QR Code resultante e salvá-lo nos formatos desejados.
 from __future__ import annotations
 
 import tkinter as tk
+import webbrowser
+from datetime import datetime
 from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox
 from typing import Optional
@@ -18,6 +20,7 @@ from typing import Optional
 import customtkinter as ctk
 from PIL import Image
 
+from browser_preview import show_qr_in_browser
 from config import (
     LANDING_PAGE_DIR,
     OUTPUT_DIR,
@@ -29,7 +32,7 @@ from config import (
 )
 from landing_page_builder import build_landing_page
 from qr_generator import QRCodeGenerationError, QRCodeGenerator
-from utils import logger, validate_hex_color, validate_url
+from utils import get_pictures_directory, logger, validate_hex_color, validate_url
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -43,7 +46,8 @@ class QRCodeApp(ctk.CTk):
 
         self.title("QR Code Generator - Redirecionamento por Sistema Operacional")
         self.geometry("1080x720")
-        self.minsize(960, 640)
+        self.minsize(860, 560)
+        self.resizable(True, True)
 
         # Estado interno
         self.logo_path: Optional[Path] = None
@@ -52,6 +56,8 @@ class QRCodeApp(ctk.CTk):
         self.caption_color: str = SENAI_BLUE
         self.generator: Optional[QRCodeGenerator] = None
         self.preview_image_ctk: Optional[ctk.CTkImage] = None
+        self._last_rendered_image: Optional[Image.Image] = None  # imagem "crua", sem redimensionar
+        self._resize_job: Optional[str] = None  # id do agendamento (debounce) de redimensionamento
 
         self._build_layout()
 
@@ -289,6 +295,18 @@ class QRCodeApp(ctk.CTk):
         self.save_btn.grid(row=row, column=0, sticky="ew", pady=(0, 4))
         row += 1
 
+        self.quick_save_btn = ctk.CTkButton(
+            form,
+            text="📂 Salvar em Imagens e Abrir no Navegador",
+            command=self._on_quick_save,
+            height=40,
+            state="disabled",
+            fg_color="#1f6aa5",
+            hover_color="#154a73",
+        )
+        self.quick_save_btn.grid(row=row, column=0, sticky="ew", pady=(0, 4))
+        row += 1
+
         self.status_label = ctk.CTkLabel(form, text="", text_color="gray70", anchor="w")
         self.status_label.grid(row=row, column=0, sticky="ew", pady=(8, 0))
 
@@ -301,10 +319,14 @@ class QRCodeApp(ctk.CTk):
         self.preview_label = ctk.CTkLabel(
             preview_frame,
             text="A pré-visualização do QR Code aparecerá aqui",
-            width=480,
-            height=480,
         )
         self.preview_label.grid(row=0, column=0, sticky="nsew", padx=16, pady=16)
+
+        self._preview_frame = preview_frame
+        # Redesenha a pré-visualização sempre que o painel muda de tamanho
+        # (redimensionar a janela, maximizar, etc.) — com debounce para não
+        # recalcular a cada pixel durante o arraste da borda da janela.
+        preview_frame.bind("<Configure>", self._on_preview_resize)
 
     # ------------------------------------------------------------------ #
     # Callbacks
@@ -466,6 +488,7 @@ class QRCodeApp(ctk.CTk):
             image = self.generator.render()
             self._update_preview(image)
             self.save_btn.configure(state="normal")
+            self.quick_save_btn.configure(state="normal")
             self._set_status("QR Code gerado com sucesso. Clique em 'Salvar' para exportar.")
         except QRCodeGenerationError as exc:
             messagebox.showerror("Erro ao gerar QR Code", str(exc))
@@ -475,12 +498,71 @@ class QRCodeApp(ctk.CTk):
             logger.exception("Erro inesperado ao gerar QR Code")
 
     def _update_preview(self, image: Image.Image) -> None:
-        preview = image.copy()
-        preview.thumbnail((480, 480), Image.Resampling.LANCZOS)
+        """Guarda a imagem recém-gerada (em tamanho real) e a exibe."""
+        self._last_rendered_image = image
+        self._refresh_preview_image()
+
+    def _on_preview_resize(self, _event: object) -> None:
+        """
+        Chamado sempre que o painel de pré-visualização muda de tamanho.
+        Usa debounce (aguarda 120ms sem novos eventos) para evitar
+        recalcular a imagem a cada pixel durante o arraste da janela.
+        """
+        if self._resize_job is not None:
+            self.after_cancel(self._resize_job)
+        self._resize_job = self.after(120, self._refresh_preview_image)
+
+    def _refresh_preview_image(self) -> None:
+        """Redesenha a pré-visualização no tamanho atual do painel disponível."""
+        self._resize_job = None
+        if self._last_rendered_image is None:
+            return
+
+        # Espaço disponível dentro do painel (descontando o padding usado no grid)
+        frame_width = max(self._preview_frame.winfo_width() - 32, 120)
+        frame_height = max(self._preview_frame.winfo_height() - 32, 120)
+
+        preview = self._last_rendered_image.copy()
+        preview.thumbnail((frame_width, frame_height), Image.Resampling.LANCZOS)
         self.preview_image_ctk = ctk.CTkImage(
             light_image=preview, dark_image=preview, size=preview.size
         )
         self.preview_label.configure(image=self.preview_image_ctk, text="")
+
+    def _on_quick_save(self) -> None:
+        """
+        Salva o QR Code diretamente na pasta Imagens do usuário, informa
+        o caminho exato onde foi salvo e abre uma pré-visualização no
+        navegador padrão do sistema.
+        """
+        if self.generator is None:
+            messagebox.showwarning("Nada para salvar", "Gere o QR Code antes de salvar.")
+            return
+
+        try:
+            pictures_dir = get_pictures_directory()
+            filename = f"qrcode_{datetime.now():%Y%m%d_%H%M%S}"
+            results = self.generator.save(pictures_dir, filename)
+
+            files_list = "\n".join(f"- {fmt}: {path}" for fmt, path in results.items())
+            messagebox.showinfo(
+                "QR Code salvo",
+                f"QR Code salvo com sucesso em:\n\n{pictures_dir}\n\nArquivos gerados:\n{files_list}",
+            )
+            self._set_status(f"QR Code salvo em: {pictures_dir}")
+
+            preview_path = results.get("PNG") or results.get("SVG")
+            if preview_path:
+                show_qr_in_browser(preview_path)
+            elif "PDF" in results:
+                webbrowser.open(results["PDF"].resolve().as_uri())
+
+        except QRCodeGenerationError as exc:
+            messagebox.showerror("Erro ao salvar", str(exc))
+            logger.exception("Falha ao salvar QR Code na pasta Imagens")
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Erro inesperado", str(exc))
+            logger.exception("Erro inesperado ao salvar/abrir o QR Code")
 
     def _on_save(self) -> None:
         """Salva o QR Code gerado nos formatos selecionados."""

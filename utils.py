@@ -122,6 +122,24 @@ def ensure_directory(path: Path) -> Path:
     return path
 
 
+def get_pictures_directory() -> Path:
+    """
+    Retorna a pasta de imagens ("Pictures") do usuário atual, de forma
+    multiplataforma (Windows, macOS, Linux).
+
+    No Windows, mesmo em instalações com o Explorer exibindo o nome
+    traduzido "Imagens", o caminho real da pasta no sistema de arquivos
+    continua sendo `Pictures` (a tradução é apenas visual, feita via
+    `desktop.ini`) — por isso `Path.home() / "Pictures"` funciona de
+    forma confiável na grande maioria dos casos.
+
+    Returns:
+        Caminho da pasta de imagens do usuário (criada se não existir).
+    """
+    pictures_dir = Path.home() / "Pictures"
+    return ensure_directory(pictures_dir)
+
+
 def _autocrop_to_content(image: Image.Image, tolerance: int = 12) -> Image.Image:
     """
     Remove margens vazias ao redor do conteúdo real de uma imagem RGBA,
