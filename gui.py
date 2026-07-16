@@ -198,6 +198,30 @@ class QRCodeApp(ctk.CTk):
         self.caption_color_btn.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         row += 1
 
+        # --- Olhos personalizados (marcadores de posição) ------------------ #
+        self.custom_eyes_var = tk.BooleanVar(value=False)
+        self.custom_eyes_check = ctk.CTkCheckBox(
+            form,
+            text='Personalizar "olhos" com S do SENAI (experimental)',
+            variable=self.custom_eyes_var,
+        )
+        self.custom_eyes_check.grid(row=row, column=0, sticky="ew", pady=(4, 0))
+        row += 1
+        ctk.CTkLabel(
+            form,
+            text=(
+                "* Os anéis externos dos marcadores permanecem intactos,\n"
+                "  mas essa personalização foge do padrão e não é protegida\n"
+                "  por correção de erro. Teste em vários celulares antes\n"
+                "  de imprimir em grande escala."
+            ),
+            anchor="w",
+            justify="left",
+            text_color="gray70",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        row += 1
+
         # --- Tamanho / margem -------------------------------------------- #
         ctk.CTkLabel(form, text="Tamanho (px)", anchor="w").grid(
             row=row, column=0, sticky="ew", pady=(4, 0)
@@ -421,6 +445,7 @@ class QRCodeApp(ctk.CTk):
                 output_formats=self._selected_formats(),
                 caption_text=self.caption_entry.get().strip() or None,
                 caption_color=self.caption_color,
+                eye_mark="S" if self.custom_eyes_var.get() else None,
             )
         except ValueError as exc:
             messagebox.showerror("Configuração inválida", str(exc))

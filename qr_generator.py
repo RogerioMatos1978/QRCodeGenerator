@@ -24,6 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config import (
     DEFAULT_LOGO_RATIO,
+    LOGO_BACKDROP_PADDING_RATIO,
     OutputFormat,
     QRStyleConfig,
 )
@@ -138,14 +139,15 @@ class QRCodeGenerator:
         target_dim = int(qr_size * DEFAULT_LOGO_RATIO)
         logo = logo.resize((target_dim, target_dim), Image.Resampling.LANCZOS)
 
-        # Backdrop branco arredondado (padding) para manter contraste
-        padding = int(target_dim * 0.12)
+        # Backdrop branco (com cantos levemente arredondados) atrás do logo.
+        # padding=0 por padrão: o logo ocupa o backdrop inteiro, sem margem.
+        padding = int(target_dim * LOGO_BACKDROP_PADDING_RATIO)
         backdrop_dim = target_dim + padding * 2
         backdrop = Image.new("RGBA", (backdrop_dim, backdrop_dim), (0, 0, 0, 0))
         draw = ImageDraw.Draw(backdrop)
         draw.rounded_rectangle(
             [(0, 0), (backdrop_dim - 1, backdrop_dim - 1)],
-            radius=int(backdrop_dim * 0.18),
+            radius=max(int(backdrop_dim * 0.12), 2),
             fill=(255, 255, 255, 255),
         )
         backdrop.paste(logo, (padding, padding), mask=logo)
@@ -162,6 +164,76 @@ class QRCodeGenerator:
         composed.paste(overlay, position, mask=overlay)
         logger.info("Logotipo centralizado no QR Code (%s%% da largura).", int(DEFAULT_LOGO_RATIO * 100))
         return composed
+
+    # ------------------------------------------------------------------ #
+    # Personalização dos marcadores de posição ("olhos")
+    # ------------------------------------------------------------------ #
+    def _apply_custom_eyes(self, image: Image.Image) -> Image.Image:
+        """
+        Substitui o quadrado central (3x3 módulos) de cada um dos 3
+        marcadores de posição do QR Code por um caractere (ex.: "S").
+
+        Os anéis externos do marcador (7x7 módulos) permanecem
+        INTOCADOS — é neles que a maioria dos leitores de QR Code se
+        baseia para localizar e alinhar o código. Ainda assim, esta é
+        uma personalização estrutural que foge do padrão e não é
+        protegida por correção de erro: teste a leitura em múltiplos
+        aparelhos antes de usar em impressões de grande escala.
+
+        Args:
+            image: Imagem do QR Code já renderizada (sem logo/legenda).
+
+        Returns:
+            Imagem com os 3 marcadores de posição personalizados.
+        """
+        if not self.style.eye_mark:
+            return image
+
+        qr = self._build_qr()
+        modules = qr.symbol_size(scale=1, border=0)[0]  # módulos, sem quiet zone
+        scale = self._compute_scale()
+        border_px = self.style.border * scale
+        module_px = scale
+        inner_size = 3 * module_px  # quadrado central do marcador (3x3 módulos)
+
+        eye_top_left_modules = [
+            (0, 0),                    # marcador superior-esquerdo
+            (modules - 7, 0),          # marcador superior-direito
+            (0, modules - 7),          # marcador inferior-esquerdo
+        ]
+
+        draw = ImageDraw.Draw(image)
+        font = self._load_font(max(int(inner_size * 0.8), 8))
+        light_rgba = (
+            (255, 255, 255, 255)
+            if self.style.light_color.lower() == "transparent"
+            else hex_to_rgba(self.style.light_color)
+        )
+        dark_rgba = hex_to_rgba(self.style.dark_color)
+
+        for mx, my in eye_top_left_modules:
+            cx = border_px + (mx + 3.5) * module_px
+            cy = border_px + (my + 3.5) * module_px
+            half = inner_size / 2
+
+            draw.rectangle([cx - half, cy - half, cx + half, cy + half], fill=light_rgba)
+
+            bbox = draw.textbbox((0, 0), self.style.eye_mark, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            draw.text(
+                (cx - text_w / 2 - bbox[0], cy - text_h / 2 - bbox[1]),
+                self.style.eye_mark,
+                font=font,
+                fill=dark_rgba,
+            )
+
+        logger.info(
+            "Marca '%s' aplicada nos 3 marcadores de posição do QR Code "
+            "(anéis externos preservados).",
+            self.style.eye_mark,
+        )
+        return image
 
     # ------------------------------------------------------------------ #
     # Composição da legenda (ex.: "Aponte a Câmera")
@@ -231,6 +303,8 @@ class QRCodeGenerator:
             Imagem PIL (RGBA) do QR Code finalizado.
         """
         base_image = self._render_base_png()
+        if self.style.eye_mark:
+            base_image = self._apply_custom_eyes(base_image)
         if self.style.logo_path:
             base_image = self._compose_with_logo(base_image)
         if self.style.caption_text:
@@ -274,6 +348,8 @@ class QRCodeGenerator:
         )
         svg_content = buffer.getvalue()
 
+        if self.style.eye_mark:
+            svg_content = self._embed_eyes_in_svg(svg_content, qr)
         if self.style.logo_path:
             svg_content = self._embed_logo_in_svg(svg_content, qr)
         if self.style.caption_text:
@@ -282,6 +358,48 @@ class QRCodeGenerator:
         destination.write_text(svg_content, encoding="utf-8")
         logger.info("SVG salvo em: %s", destination)
         return destination
+
+    def _embed_eyes_in_svg(self, svg_content: str, qr: segno.QRCode) -> str:
+        """
+        Insere o caractere de `eye_mark` (ex.: "S") sobre o quadrado
+        central dos 3 marcadores de posição, mantendo os anéis externos
+        do SVG original intactos (mesma lógica aplicada no PNG).
+        """
+        svg_scale = 10  # mesma escala usada em _save_svg
+        modules = qr.symbol_size(scale=1, border=0)[0]
+        module_px = svg_scale
+        border_px = self.style.border * svg_scale
+        inner_size = 3 * module_px
+
+        eye_top_left_modules = [
+            (0, 0),
+            (modules - 7, 0),
+            (0, modules - 7),
+        ]
+
+        light_color = (
+            "#FFFFFF" if self.style.light_color.lower() == "transparent" else self.style.light_color
+        )
+        font_size = max(int(inner_size * 0.8), 8)
+
+        markup_parts = []
+        for mx, my in eye_top_left_modules:
+            cx = border_px + (mx + 3.5) * module_px
+            cy = border_px + (my + 3.5) * module_px
+            half = inner_size / 2
+            markup_parts.append(
+                f'<rect x="{cx - half:.2f}" y="{cy - half:.2f}" '
+                f'width="{inner_size}" height="{inner_size}" fill="{light_color}" />'
+                f'<text x="{cx:.2f}" y="{cy + font_size * 0.35:.2f}" '
+                f'font-family="Arial, Helvetica, sans-serif" font-weight="bold" '
+                f'font-size="{font_size}" fill="{self.style.dark_color}" '
+                f'text-anchor="middle">{self._escape_xml(self.style.eye_mark)}</text>'
+            )
+
+        markup = "".join(markup_parts)
+        if "</svg>" in svg_content:
+            svg_content = svg_content.replace("</svg>", f"{markup}</svg>")
+        return svg_content
 
     def _embed_caption_in_svg(self, svg_content: str, qr: segno.QRCode) -> str:
         """

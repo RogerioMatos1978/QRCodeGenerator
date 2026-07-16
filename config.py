@@ -34,6 +34,7 @@ LANDING_PAGE_DIR: Path = BASE_DIR / "landing_page"
 LOGO_TARGET_SIZE: Tuple[int, int] = (300, 300)   # tamanho padrão do logotipo (px)
 MIN_DPI: int = 300                               # resolução mínima exigida (alta qualidade)
 DEFAULT_LOGO_RATIO: float = 0.22                 # logo ocupa no máx. ~22% da largura do QR
+LOGO_BACKDROP_PADDING_RATIO: float = 0.0         # margem branca ao redor do logo (0 = sem margem)
 DEFAULT_QR_SIZE_PX: int = 1000                   # tamanho padrão da imagem final (px)
 DEFAULT_BORDER_MODULES: int = 4                  # quiet zone padrão (módulos)
 
@@ -69,6 +70,10 @@ class QRStyleConfig:
         caption_text: Texto opcional exibido abaixo do QR Code
             (ex.: "Aponte a Câmera").
         caption_color: Cor do texto da legenda (hex).
+        eye_mark: Caractere opcional (ex.: "S") desenhado no centro dos
+            3 marcadores de posição ("olhos") do QR Code. ATENÇÃO: essa
+            personalização não é protegida por correção de erro — teste
+            a leitura em vários celulares antes de usar em massa.
     """
 
     data: str
@@ -82,6 +87,7 @@ class QRStyleConfig:
     dpi: int = MIN_DPI
     caption_text: Optional[str] = None
     caption_color: str = SENAI_BLUE
+    eye_mark: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Regras de negócio aplicadas após a criação do objeto."""

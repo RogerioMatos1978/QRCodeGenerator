@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Tuple
 from urllib.parse import urlparse
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 from config import LOGO_TARGET_SIZE
 
@@ -122,12 +122,47 @@ def ensure_directory(path: Path) -> Path:
     return path
 
 
+def _autocrop_to_content(image: Image.Image, tolerance: int = 12) -> Image.Image:
+    """
+    Remove margens vazias ao redor do conteúdo real de uma imagem RGBA,
+    para que o logotipo preencha melhor o espaço disponível (em vez de
+    ficar pequeno dentro de uma grande área em branco/transparente).
+
+    Primeiro tenta usar o canal alfa (transparência real). Se a imagem
+    não tiver transparência (é totalmente opaca), detecta e remove uma
+    margem de cor sólida (ex.: fundo branco) comparando com a cor do
+    canto superior esquerdo.
+
+    Args:
+        image: Imagem RGBA de entrada.
+        tolerance: Diferença de cor (0-255) tolerada como "fundo".
+
+    Returns:
+        Imagem recortada na caixa delimitadora do conteúdo. Se nenhum
+        conteúdo distinto do fundo for detectado, retorna a imagem original.
+    """
+    rgba = image.convert("RGBA")
+    bbox = rgba.split()[-1].getbbox()  # bounding box do canal alfa
+
+    if bbox is None or bbox == (0, 0, rgba.width, rgba.height):
+        # Sem transparência real (ou totalmente opaca): tenta detectar
+        # uma margem de cor de fundo sólida a partir do canto da imagem.
+        background_color = rgba.getpixel((0, 0))
+        background = Image.new("RGBA", rgba.size, background_color)
+        diff = ImageChops.difference(rgba.convert("RGB"), background.convert("RGB"))
+        mask = diff.convert("L").point(lambda p: 255 if p > tolerance else 0)
+        bbox = mask.getbbox()
+
+    return rgba.crop(bbox) if bbox else rgba
+
+
 def resize_logo_with_transparency(
     image_path: Path, target_size: Tuple[int, int] = LOGO_TARGET_SIZE
 ) -> Image.Image:
     """
-    Carrega um logotipo, converte para RGBA (preservando transparência)
-    e o redimensiona proporcionalmente para caber em um quadrado
+    Carrega um logotipo, converte para RGBA (preservando transparência),
+    recorta automaticamente margens vazias ao redor do conteúdo real, e
+    o redimensiona proporcionalmente para caber em um quadrado
     `target_size`, centralizando o resultado em um canvas transparente.
 
     Args:
@@ -146,6 +181,7 @@ def resize_logo_with_transparency(
 
     with Image.open(image_path) as img:
         img = img.convert("RGBA")
+        img = _autocrop_to_content(img)
 
         # Redimensiona mantendo a proporção (thumbnail respeita aspect ratio)
         img_copy = img.copy()
@@ -159,5 +195,5 @@ def resize_logo_with_transparency(
         )
         canvas.paste(img_copy, offset, mask=img_copy)
 
-    logger.info("Logotipo redimensionado para %sx%s px", *target_size)
+    logger.info("Logotipo recortado e redimensionado para %sx%s px", *target_size)
     return canvas
