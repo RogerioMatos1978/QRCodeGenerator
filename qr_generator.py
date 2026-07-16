@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict
 
 import segno
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from config import (
     DEFAULT_LOGO_RATIO,
@@ -164,12 +164,68 @@ class QRCodeGenerator:
         return composed
 
     # ------------------------------------------------------------------ #
+    # Composição da legenda (ex.: "Aponte a Câmera")
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _load_font(size: int) -> ImageFont.ImageFont:
+        """
+        Carrega uma fonte legível e em negrito para a legenda.
+
+        Usa a fonte embutida do Pillow (disponível a partir da versão 10.1,
+        sem depender de fontes instaladas no sistema operacional — funciona
+        de forma idêntica em Windows, macOS e Linux/PyCharm).
+        """
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:  # Pillow < 10.1 não aceita o parâmetro "size"
+            return ImageFont.load_default()
+
+    def _add_caption(self, image: Image.Image) -> Image.Image:
+        """
+        Adiciona uma faixa com texto centralizado abaixo do QR Code
+        (ex.: "Aponte a Câmera"), útil para materiais impressos.
+
+        Args:
+            image: Imagem do QR Code já renderizada (com logo, se houver).
+
+        Returns:
+            Nova imagem, mais alta, com a legenda desenhada na parte inferior.
+        """
+        if not self.style.caption_text:
+            return image
+
+        band_height = max(int(image.height * 0.16), 60)
+        background = (
+            (255, 255, 255, 255)
+            if self.style.light_color.lower() == "transparent"
+            else hex_to_rgba(self.style.light_color)
+        )
+
+        canvas = Image.new("RGBA", (image.width, image.height + band_height), background)
+        canvas.paste(image, (0, 0), mask=image)
+
+        draw = ImageDraw.Draw(canvas)
+        font_size = int(band_height * 0.42)
+        font = self._load_font(font_size)
+        text_color = hex_to_rgba(self.style.caption_color)
+
+        bbox = draw.textbbox((0, 0), self.style.caption_text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        x = (canvas.width - text_width) / 2 - bbox[0]
+        y = image.height + (band_height - text_height) / 2 - bbox[1]
+
+        draw.text((x, y), self.style.caption_text, font=font, fill=text_color)
+        logger.info("Legenda '%s' adicionada abaixo do QR Code.", self.style.caption_text)
+        return canvas
+
+    # ------------------------------------------------------------------ #
     # API pública: geração da imagem final (usada também pela GUI)
     # ------------------------------------------------------------------ #
     def render(self) -> Image.Image:
         """
-        Gera a imagem final do QR Code (com logotipo, se configurado),
-        pronta para pré-visualização ou exportação.
+        Gera a imagem final do QR Code (com logotipo e legenda, se
+        configurados), pronta para pré-visualização ou exportação.
 
         Returns:
             Imagem PIL (RGBA) do QR Code finalizado.
@@ -177,6 +233,8 @@ class QRCodeGenerator:
         base_image = self._render_base_png()
         if self.style.logo_path:
             base_image = self._compose_with_logo(base_image)
+        if self.style.caption_text:
+            base_image = self._add_caption(base_image)
         return base_image
 
     # ------------------------------------------------------------------ #
@@ -218,10 +276,54 @@ class QRCodeGenerator:
 
         if self.style.logo_path:
             svg_content = self._embed_logo_in_svg(svg_content, qr)
+        if self.style.caption_text:
+            svg_content = self._embed_caption_in_svg(svg_content, qr)
 
         destination.write_text(svg_content, encoding="utf-8")
         logger.info("SVG salvo em: %s", destination)
         return destination
+
+    def _embed_caption_in_svg(self, svg_content: str, qr: segno.QRCode) -> str:
+        """
+        Amplia o SVG (altura e viewBox) e insere uma faixa com texto
+        vetorial centralizado abaixo do QR Code — mantém tudo em um
+        único arquivo vetorial, nítido em qualquer tamanho de impressão.
+        """
+        width, height = qr.symbol_size(scale=10, border=self.style.border)
+        band_height = max(int(width * 0.16), 60)
+        new_height = height + band_height
+        band_color = (
+            "#FFFFFF" if self.style.light_color.lower() == "transparent" else self.style.light_color
+        )
+        font_size = int(band_height * 0.42)
+
+        # Atualiza os atributos height/viewBox do <svg> raiz para acomodar a faixa
+        svg_content = re.sub(r'height="[\d.]+"', f'height="{new_height}"', svg_content, count=1)
+        svg_content = re.sub(
+            r'viewBox="0 0 [\d.]+ [\d.]+"', f'viewBox="0 0 {width} {new_height}"', svg_content, count=1
+        )
+
+        caption_markup = (
+            f'<rect x="0" y="{height}" width="{width}" height="{band_height}" fill="{band_color}" />'
+            f'<text x="{width / 2:.2f}" y="{height + band_height / 2 + font_size * 0.35:.2f}" '
+            f'font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="{font_size}" '
+            f'fill="{self.style.caption_color}" text-anchor="middle">'
+            f"{self._escape_xml(self.style.caption_text)}</text>"
+        )
+        if "</svg>" in svg_content:
+            svg_content = svg_content.replace("</svg>", f"{caption_markup}</svg>")
+        return svg_content
+
+    @staticmethod
+    def _escape_xml(text: str) -> str:
+        """Escapa caracteres especiais para inserção segura em texto SVG/XML."""
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )
 
     def _embed_logo_in_svg(self, svg_content: str, qr: segno.QRCode) -> str:
         """Insere o logotipo (como <image> base64) centralizado no SVG."""

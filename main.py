@@ -60,6 +60,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dark-color", type=str, default="#000000", help="Cor dos módulos do QR Code.")
     parser.add_argument("--light-color", type=str, default="#FFFFFF", help="Cor de fundo.")
     parser.add_argument(
+        "--caption-text",
+        type=str,
+        default=None,
+        help="Texto exibido abaixo do QR Code (ex.: 'Aponte a Câmera').",
+    )
+    parser.add_argument(
+        "--caption-color", type=str, default="#164194", help="Cor do texto da legenda (hex)."
+    )
+    parser.add_argument(
         "--formats",
         nargs="+",
         choices=["PNG", "SVG", "PDF"],
@@ -103,6 +112,8 @@ def run_cli(args: argparse.Namespace) -> int:
             light_color=args.light_color,
             logo_path=args.logo,
             output_formats=tuple(args.formats),
+            caption_text=args.caption_text,
+            caption_color=args.caption_color,
         )
         generator = QRCodeGenerator(style)
         results = generator.save(args.output_dir, args.filename)

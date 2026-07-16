@@ -40,12 +40,20 @@ DEFAULT_BORDER_MODULES: int = 4                  # quiet zone padrão (módulos)
 VALID_ERROR_LEVELS: Tuple[ErrorCorrectionLevel, ...] = ("L", "M", "Q", "H")
 VALID_OUTPUT_FORMATS: Tuple[OutputFormat, ...] = ("PNG", "SVG", "PDF")
 
+# --------------------------------------------------------------------------- #
+# Cores oficiais do Sistema Indústria (Manual de Marcas CNI/SESI/SENAI/IEL,
+# versão 2024). Usadas como preset rápido de identidade visual na GUI.
+# --------------------------------------------------------------------------- #
+SENAI_BLUE: str = "#164194"    # Pantone 293 C  (R22 G65 B148)
+SENAI_ORANGE: str = "#EF4910"  # Pantone Orange 021 C (R239 G73 B16)
+SESI_GREEN: str = "#52AE32"    # Pantone 361 C  (R82 G174 B50)
+
 
 @dataclass(slots=True)
 class QRStyleConfig:
     """
     Agrupa todas as opções necessárias para gerar um QR Code
-    (dados, dimensões, cores, correção de erro e logotipo).
+    (dados, dimensões, cores, correção de erro, logotipo e legenda).
 
     Attributes:
         data: Conteúdo que será codificado no QR Code (URL da landing page).
@@ -58,6 +66,9 @@ class QRStyleConfig:
         logo_path: Caminho opcional para um logotipo a ser centralizado.
         output_formats: Formatos de exportação desejados.
         dpi: Resolução da imagem exportada (mínimo recomendado: 300).
+        caption_text: Texto opcional exibido abaixo do QR Code
+            (ex.: "Aponte a Câmera").
+        caption_color: Cor do texto da legenda (hex).
     """
 
     data: str
@@ -69,6 +80,8 @@ class QRStyleConfig:
     logo_path: Optional[Path] = None
     output_formats: Tuple[OutputFormat, ...] = ("PNG",)
     dpi: int = MIN_DPI
+    caption_text: Optional[str] = None
+    caption_color: str = SENAI_BLUE
 
     def __post_init__(self) -> None:
         """Regras de negócio aplicadas após a criação do objeto."""

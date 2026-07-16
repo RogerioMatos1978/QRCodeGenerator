@@ -24,6 +24,8 @@ from config import (
     OutputFormat,
     QRStyleConfig,
     RedirectURLs,
+    SENAI_BLUE,
+    SENAI_ORANGE,
 )
 from landing_page_builder import build_landing_page
 from qr_generator import QRCodeGenerationError, QRCodeGenerator
@@ -47,6 +49,7 @@ class QRCodeApp(ctk.CTk):
         self.logo_path: Optional[Path] = None
         self.dark_color: str = "#000000"
         self.light_color: str = "#FFFFFF"
+        self.caption_color: str = SENAI_BLUE
         self.generator: Optional[QRCodeGenerator] = None
         self.preview_image_ctk: Optional[ctk.CTkImage] = None
 
@@ -165,6 +168,36 @@ class QRCodeApp(ctk.CTk):
         self.light_color_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0))
         row += 1
 
+        self.senai_preset_btn = ctk.CTkButton(
+            form,
+            text="🎨 Aplicar cores do SENAI",
+            fg_color=SENAI_ORANGE,
+            hover_color="#C93C0C",
+            text_color="white",
+            command=self._apply_senai_colors,
+        )
+        self.senai_preset_btn.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        row += 1
+
+        # --- Legenda (texto abaixo do QR Code) ---------------------------- #
+        ctk.CTkLabel(form, text="Texto abaixo do QR Code (opcional)", anchor="w").grid(
+            row=row, column=0, sticky="ew", pady=(4, 0)
+        )
+        row += 1
+        self.caption_entry = ctk.CTkEntry(form, placeholder_text="Aponte a Câmera")
+        self.caption_entry.grid(row=row, column=0, sticky="ew", pady=(0, 4))
+        row += 1
+
+        self.caption_color_btn = ctk.CTkButton(
+            form,
+            text="Cor do texto",
+            fg_color=self.caption_color,
+            text_color=self._contrast_text_color(self.caption_color),
+            command=lambda: self._pick_color("caption"),
+        )
+        self.caption_color_btn.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        row += 1
+
         # --- Tamanho / margem -------------------------------------------- #
         ctk.CTkLabel(form, text="Tamanho (px)", anchor="w").grid(
             row=row, column=0, sticky="ew", pady=(4, 0)
@@ -278,9 +311,37 @@ class QRCodeApp(ctk.CTk):
             if target == "dark":
                 self.dark_color = hex_color
                 self.dark_color_btn.configure(fg_color=hex_color, text_color=text_color)
-            else:
+            elif target == "light":
                 self.light_color = hex_color
                 self.light_color_btn.configure(fg_color=hex_color, text_color=text_color)
+            elif target == "caption":
+                self.caption_color = hex_color
+                self.caption_color_btn.configure(fg_color=hex_color, text_color=text_color)
+
+    def _apply_senai_colors(self) -> None:
+        """
+        Atalho: aplica a paleta oficial do SENAI (Manual de Marcas 2024) —
+        QR Code em azul SENAI sobre fundo branco (alto contraste para
+        leitura) e legenda em laranja SENAI.
+        """
+        self.dark_color = SENAI_BLUE
+        self.light_color = "#FFFFFF"
+        self.caption_color = SENAI_ORANGE
+
+        self.dark_color_btn.configure(
+            fg_color=self.dark_color, text_color=self._contrast_text_color(self.dark_color)
+        )
+        self.light_color_btn.configure(
+            fg_color=self.light_color, text_color=self._contrast_text_color(self.light_color)
+        )
+        self.caption_color_btn.configure(
+            fg_color=self.caption_color, text_color=self._contrast_text_color(self.caption_color)
+        )
+
+        if not self.caption_entry.get().strip():
+            self.caption_entry.insert(0, "Aponte a Câmera")
+
+        self._set_status("Paleta de cores do SENAI aplicada (azul #164194 / laranja #EF4910).")
 
     def _on_select_logo(self) -> None:
         """Abre o seletor de arquivos para escolher o logotipo."""
@@ -358,6 +419,8 @@ class QRCodeApp(ctk.CTk):
                 light_color=self.light_color,
                 logo_path=self.logo_path,
                 output_formats=self._selected_formats(),
+                caption_text=self.caption_entry.get().strip() or None,
+                caption_color=self.caption_color,
             )
         except ValueError as exc:
             messagebox.showerror("Configuração inválida", str(exc))
