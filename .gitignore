@@ -1,7 +1,12 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
+*.pyo
 output/*.png
 output/*.svg
 output/*.pdf
 .idea/
+.vscode/
+*.log
+.DS_Store
