@@ -150,6 +150,7 @@ class QRCodeApp(ctk.CTk):
             color_frame,
             text="Cor do QR Code",
             fg_color=self.dark_color,
+            text_color=self._contrast_text_color(self.dark_color),
             command=lambda: self._pick_color("dark"),
         )
         self.dark_color_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
@@ -158,7 +159,7 @@ class QRCodeApp(ctk.CTk):
             color_frame,
             text="Cor de fundo",
             fg_color=self.light_color,
-            text_color="black",
+            text_color=self._contrast_text_color(self.light_color),
             command=lambda: self._pick_color("light"),
         )
         self.light_color_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0))
@@ -202,9 +203,9 @@ class QRCodeApp(ctk.CTk):
         formats_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
 
         self.format_vars = {
-            "PNG": ctk.BooleanVar(value=True),
-            "SVG": ctk.BooleanVar(value=False),
-            "PDF": ctk.BooleanVar(value=False),
+            "PNG": tk.BooleanVar(value=True),
+            "SVG": tk.BooleanVar(value=False),
+            "PDF": tk.BooleanVar(value=False),
         }
         for i, fmt in enumerate(self.format_vars):
             ctk.CTkCheckBox(
@@ -251,17 +252,35 @@ class QRCodeApp(ctk.CTk):
     # ------------------------------------------------------------------ #
     # Callbacks
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _contrast_text_color(hex_color: str) -> str:
+        """
+        Calcula a cor de texto ('black' ou 'white') com melhor contraste
+        para um fundo na cor hexadecimal informada, usando luminância
+        relativa aproximada (evita texto ilegível em botões de cor).
+        """
+        color = hex_color.lstrip("#")
+        if len(color) == 3:
+            color = "".join(ch * 2 for ch in color)
+        try:
+            r, g, b = (int(color[i : i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return "white"
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        return "black" if luminance > 0.6 else "white"
+
     def _pick_color(self, target: str) -> None:
         """Abre o seletor de cores nativo e atualiza o botão correspondente."""
         color = colorchooser.askcolor(title="Escolha uma cor")
         if color and color[1]:
             hex_color = color[1]
+            text_color = self._contrast_text_color(hex_color)
             if target == "dark":
                 self.dark_color = hex_color
-                self.dark_color_btn.configure(fg_color=hex_color)
+                self.dark_color_btn.configure(fg_color=hex_color, text_color=text_color)
             else:
                 self.light_color = hex_color
-                self.light_color_btn.configure(fg_color=hex_color)
+                self.light_color_btn.configure(fg_color=hex_color, text_color=text_color)
 
     def _on_select_logo(self) -> None:
         """Abre o seletor de arquivos para escolher o logotipo."""
