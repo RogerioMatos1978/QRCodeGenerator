@@ -1,0 +1,6 @@
+# QRCodeGenerator - dependências do projeto
+# pip install -r requirements.txt
+
+segno>=1.6.1          # Geração de QR Code (leve, sem dependências nativas, ISO/IEC 18004)
+Pillow>=11.0.0         # Manipulação de imagens (logotipo, composição, DPI, exportação PDF)
+customtkinter>=5.2.2   # Interface gráfica moderna (dark mode) baseada em Tkinter
