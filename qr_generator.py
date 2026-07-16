@@ -254,29 +254,40 @@ class QRCodeGenerator:
 
     def _add_caption(self, image: Image.Image) -> Image.Image:
         """
-        Adiciona uma faixa com texto centralizado abaixo do QR Code
-        (ex.: "Aponte a Câmera"), útil para materiais impressos.
+        Adiciona uma faixa colorida com texto centralizado ao QR Code
+        (ex.: "Aponte a Câmera"), no topo ou embaixo conforme
+        `caption_position` — útil para materiais impressos.
 
         Args:
             image: Imagem do QR Code já renderizada (com logo, se houver).
 
         Returns:
-            Nova imagem, mais alta, com a legenda desenhada na parte inferior.
+            Nova imagem, mais alta, com a faixa de legenda.
         """
         if not self.style.caption_text:
             return image
 
         band_height = max(int(image.height * 0.16), 60)
-        background = (
+        band_color_hex = self.style.caption_background_color or self.style.dark_color
+        band_background = (
             (255, 255, 255, 255)
-            if self.style.light_color.lower() == "transparent"
-            else hex_to_rgba(self.style.light_color)
+            if band_color_hex.lower() == "transparent"
+            else hex_to_rgba(band_color_hex)
         )
 
-        canvas = Image.new("RGBA", (image.width, image.height + band_height), background)
-        canvas.paste(image, (0, 0), mask=image)
-
+        canvas = Image.new("RGBA", (image.width, image.height + band_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(canvas)
+
+        if self.style.caption_position == "top":
+            band_top = 0
+            image_offset = (0, band_height)
+        else:
+            band_top = image.height
+            image_offset = (0, 0)
+
+        draw.rectangle([(0, band_top), (image.width, band_top + band_height)], fill=band_background)
+        canvas.paste(image, image_offset, mask=image)
+
         font_size = int(band_height * 0.42)
         font = self._load_font(font_size)
         text_color = hex_to_rgba(self.style.caption_color)
@@ -285,11 +296,63 @@ class QRCodeGenerator:
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         x = (canvas.width - text_width) / 2 - bbox[0]
-        y = image.height + (band_height - text_height) / 2 - bbox[1]
+        y = band_top + (band_height - text_height) / 2 - bbox[1]
 
         draw.text((x, y), self.style.caption_text, font=font, fill=text_color)
-        logger.info("Legenda '%s' adicionada abaixo do QR Code.", self.style.caption_text)
+        logger.info(
+            "Legenda '%s' adicionada (%s) ao QR Code.", self.style.caption_text, self.style.caption_position
+        )
         return canvas
+
+    # ------------------------------------------------------------------ #
+    # Efeito "cartão": cantos arredondados + borda colorida
+    # ------------------------------------------------------------------ #
+    def _apply_card_style(self, image: Image.Image) -> Image.Image:
+        """
+        Envolve a composição final (QR + logo + legenda) em cantos
+        arredondados com uma borda colorida, no estilo "cartão/crachá".
+
+        A imagem é EXPANDIDA (nunca cortada) para acomodar a borda, de
+        forma que nenhum módulo do QR Code ou texto da legenda seja
+        sobreposto pela borda.
+
+        Args:
+            image: Imagem já composta (QR + logo + legenda, se houver).
+
+        Returns:
+            Imagem com cantos arredondados e borda, ou a mesma imagem
+            recebida caso `rounded_corners` esteja desativado.
+        """
+        if not self.style.rounded_corners:
+            return image
+
+        border_width = max(int(min(image.size) * 0.018), 4)
+        radius = int(min(image.size) * 0.07) + border_width
+
+        padded_size = (image.width + border_width * 2, image.height + border_width * 2)
+        padded = Image.new("RGBA", padded_size, (0, 0, 0, 0))
+        padded.paste(image, (border_width, border_width))
+
+        border_color_hex = self.style.card_border_color or self.style.dark_color
+        border_color = hex_to_rgba(border_color_hex)
+
+        mask = Image.new("L", padded_size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [(0, 0), (padded_size[0] - 1, padded_size[1] - 1)], radius=radius, fill=255
+        )
+        rounded = Image.new("RGBA", padded_size, (0, 0, 0, 0))
+        rounded.paste(padded, (0, 0), mask=mask)
+
+        draw = ImageDraw.Draw(rounded)
+        inset = border_width / 2
+        draw.rounded_rectangle(
+            [(inset, inset), (padded_size[0] - 1 - inset, padded_size[1] - 1 - inset)],
+            radius=radius,
+            outline=border_color,
+            width=border_width,
+        )
+        logger.info("Efeito cartão aplicado (cantos arredondados + borda %s).", border_color_hex)
+        return rounded
 
     # ------------------------------------------------------------------ #
     # API pública: geração da imagem final (usada também pela GUI)
@@ -309,6 +372,7 @@ class QRCodeGenerator:
             base_image = self._compose_with_logo(base_image)
         if self.style.caption_text:
             base_image = self._add_caption(base_image)
+        base_image = self._apply_card_style(base_image)
         return base_image
 
     # ------------------------------------------------------------------ #
@@ -347,6 +411,7 @@ class QRCodeGenerator:
             light=light,
         )
         svg_content = buffer.getvalue()
+        width, height = qr.symbol_size(scale=10, border=self.style.border)
 
         if self.style.eye_mark:
             svg_content = self._embed_eyes_in_svg(svg_content, qr)
@@ -354,6 +419,10 @@ class QRCodeGenerator:
             svg_content = self._embed_logo_in_svg(svg_content, qr)
         if self.style.caption_text:
             svg_content = self._embed_caption_in_svg(svg_content, qr)
+            band_height = max(int(width * 0.16), 60)
+            height += band_height
+
+        svg_content = self._apply_card_style_svg(svg_content, width, height)
 
         destination.write_text(svg_content, encoding="utf-8")
         logger.info("SVG salvo em: %s", destination)
@@ -403,17 +472,25 @@ class QRCodeGenerator:
 
     def _embed_caption_in_svg(self, svg_content: str, qr: segno.QRCode) -> str:
         """
-        Amplia o SVG (altura e viewBox) e insere uma faixa com texto
-        vetorial centralizado abaixo do QR Code — mantém tudo em um
-        único arquivo vetorial, nítido em qualquer tamanho de impressão.
+        Amplia o SVG (altura e viewBox) e insere uma faixa colorida com
+        texto vetorial centralizado, no topo ou embaixo conforme
+        `caption_position` — mantém tudo em um único arquivo vetorial,
+        nítido em qualquer tamanho de impressão.
         """
         width, height = qr.symbol_size(scale=10, border=self.style.border)
         band_height = max(int(width * 0.16), 60)
         new_height = height + band_height
-        band_color = (
-            "#FFFFFF" if self.style.light_color.lower() == "transparent" else self.style.light_color
-        )
+        band_color = self.style.caption_background_color or self.style.dark_color
         font_size = int(band_height * 0.42)
+
+        if self.style.caption_position == "top":
+            band_y = 0
+            text_y = band_height / 2 + font_size * 0.35
+            content_shift = f'<g transform="translate(0,{band_height})">'
+        else:
+            band_y = height
+            text_y = height + band_height / 2 + font_size * 0.35
+            content_shift = "<g>"
 
         # Atualiza os atributos height/viewBox do <svg> raiz para acomodar a faixa
         svg_content = re.sub(r'height="[\d.]+"', f'height="{new_height}"', svg_content, count=1)
@@ -421,16 +498,78 @@ class QRCodeGenerator:
             r'viewBox="0 0 [\d.]+ [\d.]+"', f'viewBox="0 0 {width} {new_height}"', svg_content, count=1
         )
 
-        caption_markup = (
-            f'<rect x="0" y="{height}" width="{width}" height="{band_height}" fill="{band_color}" />'
-            f'<text x="{width / 2:.2f}" y="{height + band_height / 2 + font_size * 0.35:.2f}" '
+        band_and_text = (
+            f'<rect x="0" y="{band_y}" width="{width}" height="{band_height}" fill="{band_color}" />'
+            f'<text x="{width / 2:.2f}" y="{text_y:.2f}" '
             f'font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="{font_size}" '
             f'fill="{self.style.caption_color}" text-anchor="middle">'
             f"{self._escape_xml(self.style.caption_text)}</text>"
         )
-        if "</svg>" in svg_content:
-            svg_content = svg_content.replace("</svg>", f"{caption_markup}</svg>")
+
+        # Se a legenda fica no topo, o conteúdo original do QR (que começa
+        # em y=0) precisa ser deslocado para baixo, para abrir espaço.
+        if self.style.caption_position == "top":
+            match = re.search(r'<svg[^>]*>', svg_content)
+            if match:
+                svg_open_end = match.end()
+                before = svg_content[:svg_open_end]
+                rest = svg_content[svg_open_end:].replace("</svg>", "")
+                svg_content = f"{before}{content_shift}{rest}</g>{band_and_text}</svg>"
+        else:
+            if "</svg>" in svg_content:
+                svg_content = svg_content.replace("</svg>", f"{band_and_text}</svg>")
+
         return svg_content
+
+    def _apply_card_style_svg(self, svg_content: str, content_width: float, content_height: float) -> str:
+        """
+        Envolve todo o SVG em cantos arredondados com uma borda colorida
+        (efeito "cartão"), expandindo o viewBox para nunca cortar o
+        conteúdo original — equivalente vetorial de `_apply_card_style`.
+        """
+        if not self.style.rounded_corners:
+            return svg_content
+
+        border_width = max(min(content_width, content_height) * 0.018, 4)
+        radius = min(content_width, content_height) * 0.07 + border_width
+        total_width = content_width + border_width * 2
+        total_height = content_height + border_width * 2
+        border_color = self.style.card_border_color or self.style.dark_color
+
+        match = re.search(r'<svg[^>]*>', svg_content)
+        if not match:
+            return svg_content
+        svg_open_end = match.end()
+        before = svg_content[:svg_open_end]
+        rest = svg_content[svg_open_end:].replace("</svg>", "")
+
+        before = re.sub(r'width="[\d.]+"', f'width="{total_width:.2f}"', before, count=1)
+        before = re.sub(r'height="[\d.]+"', f'height="{total_height:.2f}"', before, count=1)
+        before = re.sub(
+            r'viewBox="0 0 [\d.]+ [\d.]+"',
+            f'viewBox="0 0 {total_width:.2f} {total_height:.2f}"',
+            before,
+            count=1,
+        )
+
+        clip_def = (
+            '<defs><clipPath id="cardClip">'
+            f'<rect x="0" y="0" width="{total_width:.2f}" height="{total_height:.2f}" '
+            f'rx="{radius:.2f}" ry="{radius:.2f}" /></clipPath></defs>'
+        )
+        border_rect = (
+            f'<rect x="{border_width / 2:.2f}" y="{border_width / 2:.2f}" '
+            f'width="{total_width - border_width:.2f}" height="{total_height - border_width:.2f}" '
+            f'rx="{radius:.2f}" ry="{radius:.2f}" fill="none" stroke="{border_color}" '
+            f'stroke-width="{border_width:.2f}" />'
+        )
+
+        return (
+            f"{before}{clip_def}"
+            f'<g clip-path="url(#cardClip)">'
+            f'<g transform="translate({border_width:.2f},{border_width:.2f})">{rest}</g>'
+            f"</g>{border_rect}</svg>"
+        )
 
     @staticmethod
     def _escape_xml(text: str) -> str:

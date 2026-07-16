@@ -10,6 +10,7 @@ Manter todas as constantes e tipos aqui facilita a manutenção e evita
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional, Tuple
@@ -19,11 +20,30 @@ from typing import Literal, Optional, Tuple
 # --------------------------------------------------------------------------- #
 ErrorCorrectionLevel = Literal["L", "M", "Q", "H"]
 OutputFormat = Literal["PNG", "SVG", "PDF"]
+CaptionPosition = Literal["top", "bottom"]
+
+
+def _resolve_base_dir() -> Path:
+    """
+    Resolve o diretório base do projeto, funcionando tanto em execução
+    normal (via `python main.py`) quanto empacotado como executável
+    (`.exe` gerado pelo PyInstaller).
+
+    Quando empacotado com `--onefile`, os arquivos do projeto ficam
+    extraídos em uma pasta temporária a cada execução — por isso,
+    dados GRAVÁVEIS (como `output/` e `landing_page/`) precisam ficar
+    ao lado do `.exe` real, não dentro dessa pasta temporária.
+    """
+    if getattr(sys, "frozen", False):
+        # Executando como .exe empacotado: usa a pasta onde o .exe está.
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
 
 # --------------------------------------------------------------------------- #
 # Diretórios padrão do projeto
 # --------------------------------------------------------------------------- #
-BASE_DIR: Path = Path(__file__).resolve().parent
+BASE_DIR: Path = _resolve_base_dir()
 ASSETS_DIR: Path = BASE_DIR / "assets"
 OUTPUT_DIR: Path = BASE_DIR / "output"
 LANDING_PAGE_DIR: Path = BASE_DIR / "landing_page"
@@ -67,13 +87,21 @@ class QRStyleConfig:
         logo_path: Caminho opcional para um logotipo a ser centralizado.
         output_formats: Formatos de exportação desejados.
         dpi: Resolução da imagem exportada (mínimo recomendado: 300).
-        caption_text: Texto opcional exibido abaixo do QR Code
+        caption_text: Texto opcional exibido na faixa do QR Code
             (ex.: "Aponte a Câmera").
-        caption_color: Cor do texto da legenda (hex).
+        caption_color: Cor do texto da legenda (hex). Padrão branco,
+            pensado para contrastar com a faixa colorida.
+        caption_position: Posição da faixa de legenda: "top" (topo,
+            estilo cartão/crachá) ou "bottom" (abaixo do QR Code).
+        caption_background_color: Cor de fundo da faixa da legenda.
+            Se None, usa `dark_color` (mesma cor do QR Code).
         eye_mark: Caractere opcional (ex.: "S") desenhado no centro dos
             3 marcadores de posição ("olhos") do QR Code. ATENÇÃO: essa
             personalização não é protegida por correção de erro — teste
             a leitura em vários celulares antes de usar em massa.
+        rounded_corners: Se True, aplica cantos arredondados e uma borda
+            colorida a toda a composição final (efeito "cartão").
+        card_border_color: Cor da borda do cartão. Se None, usa `dark_color`.
     """
 
     data: str
@@ -86,8 +114,12 @@ class QRStyleConfig:
     output_formats: Tuple[OutputFormat, ...] = ("PNG",)
     dpi: int = MIN_DPI
     caption_text: Optional[str] = None
-    caption_color: str = SENAI_BLUE
+    caption_color: str = "#FFFFFF"
+    caption_position: CaptionPosition = "top"
+    caption_background_color: Optional[str] = None
     eye_mark: Optional[str] = None
+    rounded_corners: bool = True
+    card_border_color: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Regras de negócio aplicadas após a criação do objeto."""

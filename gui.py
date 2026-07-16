@@ -53,7 +53,7 @@ class QRCodeApp(ctk.CTk):
         self.logo_path: Optional[Path] = None
         self.dark_color: str = "#000000"
         self.light_color: str = "#FFFFFF"
-        self.caption_color: str = SENAI_BLUE
+        self.caption_color: str = "#FFFFFF"
         self.generator: Optional[QRCodeGenerator] = None
         self.preview_image_ctk: Optional[ctk.CTkImage] = None
         self._last_rendered_image: Optional[Image.Image] = None  # imagem "crua", sem redimensionar
@@ -228,6 +228,16 @@ class QRCodeApp(ctk.CTk):
         ).grid(row=row, column=0, sticky="ew", pady=(0, 8))
         row += 1
 
+        # --- Estilo cartão (cantos arredondados + borda) ------------------ #
+        self.rounded_corners_var = tk.BooleanVar(value=True)
+        self.rounded_corners_check = ctk.CTkCheckBox(
+            form,
+            text="Cantos arredondados + borda (estilo cartão)",
+            variable=self.rounded_corners_var,
+        )
+        self.rounded_corners_check.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        row += 1
+
         # --- Tamanho / margem -------------------------------------------- #
         ctk.CTkLabel(form, text="Tamanho (px)", anchor="w").grid(
             row=row, column=0, sticky="ew", pady=(4, 0)
@@ -372,7 +382,7 @@ class QRCodeApp(ctk.CTk):
         """
         self.dark_color = SENAI_BLUE
         self.light_color = "#FFFFFF"
-        self.caption_color = SENAI_ORANGE
+        self.caption_color = "#FFFFFF"
 
         self.dark_color_btn.configure(
             fg_color=self.dark_color, text_color=self._contrast_text_color(self.dark_color)
@@ -468,6 +478,7 @@ class QRCodeApp(ctk.CTk):
                 caption_text=self.caption_entry.get().strip() or None,
                 caption_color=self.caption_color,
                 eye_mark="S" if self.custom_eyes_var.get() else None,
+                rounded_corners=self.rounded_corners_var.get(),
             )
         except ValueError as exc:
             messagebox.showerror("Configuração inválida", str(exc))
@@ -512,18 +523,30 @@ class QRCodeApp(ctk.CTk):
             self.after_cancel(self._resize_job)
         self._resize_job = self.after(120, self._refresh_preview_image)
 
+    # Tamanho máximo da pré-visualização em tela (px). Evita que o preview
+    # domine a janela inteira em telas grandes ou QR Codes com size_px alto —
+    # é só uma prévia; o arquivo salvo mantém a resolução/qualidade real.
+    MAX_PREVIEW_DIMENSION = 560
+
     def _refresh_preview_image(self) -> None:
         """Redesenha a pré-visualização no tamanho atual do painel disponível."""
         self._resize_job = None
         if self._last_rendered_image is None:
             return
 
-        # Espaço disponível dentro do painel (descontando o padding usado no grid)
-        frame_width = max(self._preview_frame.winfo_width() - 32, 120)
-        frame_height = max(self._preview_frame.winfo_height() - 32, 120)
+        # Garante que winfo_width/height reflitam o layout mais recente
+        # (evita medir um tamanho desatualizado logo após gerar o QR Code).
+        self.update_idletasks()
+
+        # Espaço disponível dentro do painel (descontando o padding usado no grid),
+        # limitado a MAX_PREVIEW_DIMENSION para o preview nunca ficar gigante.
+        frame_width = max(self._preview_frame.winfo_width() - 40, 120)
+        frame_height = max(self._preview_frame.winfo_height() - 40, 120)
+        target_width = min(frame_width, self.MAX_PREVIEW_DIMENSION)
+        target_height = min(frame_height, self.MAX_PREVIEW_DIMENSION)
 
         preview = self._last_rendered_image.copy()
-        preview.thumbnail((frame_width, frame_height), Image.Resampling.LANCZOS)
+        preview.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
         self.preview_image_ctk = ctk.CTkImage(
             light_image=preview, dark_image=preview, size=preview.size
         )

@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+import webbrowser
 from pathlib import Path
 
+from browser_preview import show_qr_in_browser
 from config import LANDING_PAGE_DIR, OUTPUT_DIR, QRStyleConfig, RedirectURLs
 from landing_page_builder import build_landing_page
 from qr_generator import QRCodeGenerationError, QRCodeGenerator
-from utils import logger, validate_url
+from utils import get_pictures_directory, logger, validate_url
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -66,7 +68,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Texto exibido abaixo do QR Code (ex.: 'Aponte a Câmera').",
     )
     parser.add_argument(
-        "--caption-color", type=str, default="#164194", help="Cor do texto da legenda (hex)."
+        "--caption-color", type=str, default="#FFFFFF", help="Cor do texto da legenda (hex)."
+    )
+    parser.add_argument(
+        "--caption-position",
+        type=str,
+        choices=["top", "bottom"],
+        default="top",
+        help="Posição da faixa de legenda: topo (estilo cartão) ou embaixo.",
+    )
+    parser.add_argument(
+        "--no-rounded-corners",
+        action="store_true",
+        help="Desativa cantos arredondados e borda (estilo cartão).",
+    )
+    parser.add_argument(
+        "--eye-mark",
+        type=str,
+        default=None,
+        help=(
+            "Caractere exibido no centro dos 3 marcadores de posição "
+            "(ex.: 'S'). Uso experimental: teste a leitura antes de "
+            "imprimir em grande escala."
+        ),
     )
     parser.add_argument(
         "--formats",
@@ -76,6 +100,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Formatos de exportação desejados.",
     )
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Diretório de saída.")
+    parser.add_argument(
+        "--save-to-pictures",
+        action="store_true",
+        help="Salva na pasta Imagens/Pictures do usuário (ignora --output-dir).",
+    )
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Abre uma pré-visualização do QR Code no navegador padrão após salvar.",
+    )
     parser.add_argument("--filename", type=str, default="qrcode", help="Nome do arquivo (sem extensão).")
     return parser
 
@@ -114,12 +148,25 @@ def run_cli(args: argparse.Namespace) -> int:
             output_formats=tuple(args.formats),
             caption_text=args.caption_text,
             caption_color=args.caption_color,
+            caption_position=args.caption_position,
+            eye_mark=args.eye_mark,
+            rounded_corners=not args.no_rounded_corners,
         )
         generator = QRCodeGenerator(style)
-        results = generator.save(args.output_dir, args.filename)
+        output_dir = get_pictures_directory() if args.save_to_pictures else args.output_dir
+        results = generator.save(output_dir, args.filename)
 
         for fmt, path in results.items():
             print(f"[{fmt}] Arquivo gerado: {path}")
+        print(f"\nQR Code salvo em: {output_dir}")
+
+        if args.open_browser:
+            preview_path = results.get("PNG") or results.get("SVG")
+            if preview_path:
+                show_qr_in_browser(preview_path)
+            elif "PDF" in results:
+                webbrowser.open(results["PDF"].resolve().as_uri())
+
         return 0
 
     except QRCodeGenerationError as exc:
